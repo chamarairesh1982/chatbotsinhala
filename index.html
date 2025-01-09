@@ -95,179 +95,126 @@
     </div>
 
     <script>
-        // First, let's declare our global variables
-        let fileContents = new Map();  // Stores the content of each file
-        let allParagraphs = [];        // Stores all paragraphs from all files
-        let combinedSearchIndex = null; // Our main search index
+        // Declare global variables
+        let fileContents = new Map();  // Stores file content
+        let allParagraphs = [];        // Combined paragraphs from all files
+        let combinedSearchIndex = null; // Search index
 
-        // This function splits text into paragraphs, removing empty lines
+        // Split text into paragraphs
         function splitIntoParagraphs(text) {
-            return text.split(/\n\s*\n/)
-                .map(para => para.trim())
-                .filter(para => para.length > 0);
+            return text.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0);
         }
 
-        // This function highlights search terms within text
-        function highlightText(text, searchTerms) {
-            let highlightedText = text;
-            searchTerms.forEach(term => {
-                if (term.trim()) {
-                    const regex = new RegExp(`(${term})`, 'gi');
-                    highlightedText = highlightedText.replace(regex, '<span class="highlighted">$1</span>');
-                }
+        // Highlight search terms in text
+        function highlightText(text, terms) {
+            let highlighted = text;
+            terms.forEach(term => {
+                const regex = new RegExp(`(${term})`, 'gi');
+                highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
             });
-            return highlightedText;
+            return highlighted;
         }
 
-        // This function adds messages to our chat interface
+        // Add message to chat
         function addMessage(sender, text, isHTML = false) {
             const messagesDiv = document.getElementById('messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
-            
-            if (isHTML) {
-                messageDiv.innerHTML = text;
-            } else {
-                messageDiv.textContent = text;
-            }
-            
+            messageDiv[isHTML ? 'innerHTML' : 'textContent'] = text;
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-       // Enhanced: Ensure Unicode is handled properly and debug paragraph loading
-async function loadFile(filePath) {
-    try {
-        const response = await fetch(filePath);
-        if (!response.ok) {
-            throw new Error(`Failed to load ${filePath}`);
+        // Load file and split into paragraphs with metadata
+        async function loadFile(filePath) {
+            try {
+                const response = await fetch(filePath);
+                if (!response.ok) throw new Error(`Failed to load ${filePath}`);
+                const text = await response.text();
+                return splitIntoParagraphs(text).map(para => ({
+                    text: para,
+                    source: filePath.split('/').pop()
+                }));
+            } catch (error) {
+                console.error(`Error loading file ${filePath}:`, error);
+                return [];
+            }
         }
-        const text = await response.text();
 
-        // Log file content size for debugging
-        console.log(`Loaded file: ${filePath}, size: ${text.length} characters`);
+        // Find answers using Fuse.js
+        function findComprehensiveAnswer(question) {
+            if (!combinedSearchIndex) return 'Knowledge base not loaded.';
+            const terms = question.trim().toLowerCase().split(/\s+/);
+            const results = combinedSearchIndex.search(question);
 
-        // Split text into paragraphs, ensure proper Unicode handling
-        const paragraphs = splitIntoParagraphs(text);
+            if (!results.length) return 'සමාවන්න, මට පිළිතුරක් සොයාගත නොහැක.';
 
-        // Return paragraphs with file source metadata
-        return paragraphs.map(para => ({
-            text: para,
-            source: filePath.split('/').pop()
-        }));
-    } catch (error) {
-        console.error(`Error loading ${filePath}:`, error);
-        return [];
-    }
-}
+            let response = '';
+            const seenParagraphs = new Set();
 
-       // Enhanced: Debug search function for Sinhala Unicode compatibility
-function findComprehensiveAnswer(question) {
-    if (!combinedSearchIndex || allParagraphs.length === 0) {
-        return 'Knowledge base is not loaded properly.';
-    }
+            results.forEach(result => {
+                if (result.score < 0.4 && !seenParagraphs.has(result.item.text)) {
+                    response += `${highlightText(result.item.text, terms)}
+                        <div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
+                    seenParagraphs.add(result.item.text);
+                }
+            });
 
-    const searchTerms = question.trim().toLowerCase().split(/\s+/);
-    const results = combinedSearchIndex.search(question);
-
-    if (results.length === 0) {
-        console.warn(`No results found for query: "${question}"`);
-        return 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
-    }
-
-    let formattedResponse = '';
-    let addedParagraphs = new Set();
-
-    results.forEach(result => {
-        if (result.score < 0.4 && !addedParagraphs.has(result.item.text)) {
-            const highlightedText = highlightText(result.item.text, searchTerms);
-            formattedResponse += highlightedText +
-                `\n<div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
-            addedParagraphs.add(result.item.text);
+            return response || 'සමාවන්න, මට පිළිතුරක් සොයාගත නොහැක.';
         }
-    });
 
-    console.log(`Query: "${question}", Results found: ${results.length}`);
-
-    return formattedResponse || 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
-}
-
-        // This function handles sending messages
+        // Handle user message sending
         function sendMessage() {
             const input = document.getElementById('user-input');
             const question = input.value.trim();
-
-            if (question === '') return;
-
+            if (!question) return;
             addMessage('user', question);
             const answer = findComprehensiveAnswer(question);
             addMessage('බොට්', answer, true);
             input.value = '';
         }
 
-        // Enhanced: Debug knowledge base loading
-async function loadKnowledgeBase() {
-    const fileInfo = document.getElementById('file-info');
+        // Load all knowledge base files
+        async function loadKnowledgeBase() {
+            const fileInfo = document.getElementById('file-info');
+            const files = [
+                'knowledge/buddhist_terms.txt',
+                'knowledge/explanations.txt',
+                'knowledge/explanations2.txt',
+                'knowledge/explanations3.txt'
+            ];
 
-    // Define all your knowledge base files here
-    const files = [
-        'knowledge/buddhist_terms.txt',
-        'knowledge/explanations.txt',
-        'knowledge/explanations2.txt',
-        'knowledge/explanations3.txt'
-    ];
+            allParagraphs = [];
+            fileContents.clear();
 
-    // Reset our data structures
-    allParagraphs = [];
-    fileContents.clear();
+            for (const filePath of files) {
+                const paragraphs = await loadFile(filePath);
+                if (paragraphs.length > 0) {
+                    fileContents.set(filePath, paragraphs);
+                    allParagraphs.push(...paragraphs);
+                }
+            }
 
-    for (const filePath of files) {
-        try {
-            const paragraphs = await loadFile(filePath);
-            if (paragraphs.length > 0) {
-                console.log(`File loaded: ${filePath}, paragraphs: ${paragraphs.length}`);
-                fileContents.set(filePath, paragraphs);
-                allParagraphs.push(...paragraphs); // Append paragraphs from each file
+            if (allParagraphs.length > 0) {
+                combinedSearchIndex = new Fuse(allParagraphs, {
+                    keys: ['text'],
+                    includeScore: true,
+                    threshold: 0.4,
+                    minMatchCharLength: 2,
+                    distance: 1000,
+                    ignoreLocation: true
+                });
+                fileInfo.textContent = `සාර්ථකව ${files.length} ගොනු පූරණය කරන ලදි.`;
+                addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න.');
             } else {
-                console.warn(`No paragraphs loaded for file: ${filePath}`);
+                fileInfo.textContent = 'දත්ත ගොනු පූරණය අසාර්ථක විය.';
             }
-        } catch (error) {
-            console.error(`Failed to load file: ${filePath}`, error);
         }
-    }
 
-    if (allParagraphs.length > 0) {
-        // Initialize the search index with all loaded paragraphs
-        combinedSearchIndex = new Fuse(allParagraphs, {
-            keys: ['text'],
-            includeScore: true,
-            threshold: 0.4,
-            minMatchCharLength: 2,
-            distance: 1000,
-            useExtendedSearch: true,
-            ignoreLocation: true,
-            findAllMatches: true
-        });
-
-        console.log(`Search index initialized with ${allParagraphs.length} paragraphs`);
-
-        // Update status and add welcome message
-        fileInfo.textContent = `දත්ත ගොනු ${files.length}ක් සාර්ථකව පූරණය කර ඇත. ප්‍රශ්න අසන්න.`;
-        addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න. මම සියලුම ගොනු වල ඇති තොරතුරු සොයා බලන්නම්.');
-    } else {
-        fileInfo.textContent = `ගොනු පූරණය අසාර්ථක විය. කරුණාකර ගොනු පරික්ෂා කරන්න.`;
-    }
-}
-
-
-        // Handle Enter key for sending messages
+        // Add event listeners
         document.getElementById('user-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
+            if (e.key === 'Enter') sendMessage();
         });
-
-        // Start loading the knowledge base when the page loads
         window.addEventListener('load', loadKnowledgeBase);
     </script>
 </body>

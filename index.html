@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>සිංහල චැට්බොට්</title>
+    <title>සිංහල බුද්ධ ධර්ම චැට්බොට්</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js"></script>
     <style>
         body {
@@ -82,19 +82,25 @@
             margin-top: 5px;
             font-style: italic;
         }
-        .debug-info {
-            font-size: 0.8em;
-            color: #666;
-            margin-top: 3px;
-            padding: 2px 5px;
-            background: #f8f9fa;
-            border-radius: 3px;
+        .loading-status {
+            margin: 10px 0;
+            padding: 10px;
+            background: #fff3e0;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        .error-text {
+            color: #cc0000;
+        }
+        .success-text {
+            color: #006600;
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <div id="file-info" class="file-info">Loading knowledge base...</div>
+        <div id="loading-status" class="loading-status"></div>
         <div class="messages" id="messages"></div>
         <div class="input-container">
             <input type="text" id="user-input" placeholder="ඔබේ ප්‍රශ්නය මෙහි ටයිප් කරන්න...">
@@ -103,65 +109,71 @@
     </div>
 
     <script>
-        // Declare global variables
+        // Global variables
         let fileContents = new Map();
         let allParagraphs = [];
         let combinedSearchIndex = null;
-        const DEBUG = true; // Enable/disable debug logging
+        const DEBUG = true;
 
-        // Enhanced logging function
-        function log(message, type = 'info') {
+        // Logging function
+        function log(message, type = 'info', fileDetails = null) {
             if (DEBUG) {
                 const styles = {
                     info: 'color: #0066cc',
                     error: 'color: #cc0000',
-                    success: 'color: #006600'
+                    success: 'color: #006600',
+                    warning: 'color: #ff6600'
                 };
-                console.log(`%c[${type.toUpperCase()}] ${message}`, styles[type] || styles.info);
+                let logMessage = `[${type.toUpperCase()}] ${message}`;
+                if (fileDetails) {
+                    logMessage += ` | File: ${fileDetails}`;
+                }
+                console.log(`%c${logMessage}`, styles[type] || styles.info);
             }
         }
 
-        // Split text into paragraphs with improved handling
+        // Update loading status in UI
+        function updateLoadingStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('loading-status');
+            const statusMessage = document.createElement('div');
+            statusMessage.textContent = message;
+            statusMessage.className = type === 'error' ? 'error-text' : 'success-text';
+            statusDiv.appendChild(statusMessage);
+        }
+
+        // Split text into paragraphs
         function splitIntoParagraphs(text) {
             const paragraphs = text.split(/\n\s*\n/)
                                  .map(p => p.trim())
                                  .filter(p => p.length > 0);
-            log(`Split text into ${paragraphs.length} paragraphs`);
+            log(`Split into ${paragraphs.length} paragraphs`);
             return paragraphs;
         }
 
-        // Enhanced highlight function with error handling
+        // Highlight search terms in text
         function highlightText(text, terms) {
             try {
                 let highlighted = text;
                 terms.forEach(term => {
-                    if (term.length > 1) {  // Only highlight terms longer than 1 character
+                    if (term.length > 1) {
                         const regex = new RegExp(`(${term})`, 'gi');
                         highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
                     }
                 });
                 return highlighted;
             } catch (error) {
-                log(`Error in highlighting text: ${error.message}`, 'error');
+                log(`Highlighting error: ${error.message}`, 'error');
                 return text;
             }
         }
 
-        // Enhanced message display with debug info
+        // Add message to chat
         function addMessage(sender, text, isHTML = false) {
             try {
                 const messagesDiv = document.getElementById('messages');
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
                 messageDiv[isHTML ? 'innerHTML' : 'textContent'] = text;
-                
-                if (DEBUG && sender === 'බොට්') {
-                    const debugDiv = document.createElement('div');
-                    debugDiv.className = 'debug-info';
-                    debugDiv.textContent = `Timestamp: ${new Date().toISOString()}`;
-                    messageDiv.appendChild(debugDiv);
-                }
-                
                 messagesDiv.appendChild(messageDiv);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 log(`Added ${sender} message`);
@@ -170,26 +182,39 @@
             }
         }
 
-        // Enhanced file loading with better error handling
+        // Load file content
         async function loadFile(filePath) {
             try {
-                log(`Loading file: ${filePath}`);
+                log(`Loading file: ${filePath}`, 'info', filePath);
                 const response = await fetch(filePath);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const text = await response.text();
+                
+                if (!text) {
+                    log(`Empty file: ${filePath}`, 'warning', filePath);
+                    return [];
+                }
+
                 const paragraphs = splitIntoParagraphs(text).map(para => ({
                     text: para,
                     source: filePath.split('/').pop()
                 }));
-                log(`Successfully loaded ${paragraphs.length} paragraphs from ${filePath}`, 'success');
+
+                log(`Loaded ${paragraphs.length} paragraphs from ${filePath}`, 'success', filePath);
+                updateLoadingStatus(`Loaded ${filePath}: ${paragraphs.length} paragraphs`);
                 return paragraphs;
             } catch (error) {
-                log(`Error loading file ${filePath}: ${error.message}`, 'error');
+                log(`Error loading ${filePath}: ${error.message}`, 'error', filePath);
+                updateLoadingStatus(`Failed to load ${filePath}: ${error.message}`, 'error');
                 return [];
             }
         }
 
-        // Improved search function with better relevance scoring
+        // Find answer in knowledge base
         function findComprehensiveAnswer(question) {
             if (!combinedSearchIndex) {
                 log('Search index not initialized', 'error');
@@ -197,21 +222,35 @@
             }
 
             const terms = question.trim().toLowerCase().split(/\s+/);
-            log(`Searching for terms: ${terms.join(', ')}`);
+            log(`Searching for: ${terms.join(', ')}`);
 
             const results = combinedSearchIndex.search(question);
             log(`Found ${results.length} results`);
+
+            // Log results by source
+            const resultsByFile = new Map();
+            results.forEach(result => {
+                const source = result.item.source;
+                if (!resultsByFile.has(source)) {
+                    resultsByFile.set(source, 0);
+                }
+                resultsByFile.set(source, resultsByFile.get(source) + 1);
+            });
+
+            resultsByFile.forEach((count, source) => {
+                log(`${source}: ${count} results`, 'info', source);
+            });
 
             if (!results.length) return 'සමාවන්න, මට පිළිතුරක් සොයාගත නොහැක.';
 
             let response = '';
             const seenParagraphs = new Set();
-            const MAX_RESULTS = 3; // Limit number of results
+            const MAX_RESULTS = 3;
             let resultCount = 0;
 
             results.forEach(result => {
                 if (resultCount < MAX_RESULTS && result.score < 0.4 && !seenParagraphs.has(result.item.text)) {
-                    log(`Adding result with score ${result.score} from ${result.item.source}`);
+                    log(`Using result (score ${result.score}) from ${result.item.source}`, 'info', result.item.source);
                     response += `${highlightText(result.item.text, terms)}
                         <div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
                     seenParagraphs.add(result.item.text);
@@ -222,13 +261,13 @@
             return response || 'සමාවන්න, මට පිළිතුරක් සොයාගත නොහැක.';
         }
 
-        // Enhanced message handling with input validation
+        // Handle sending message
         function sendMessage() {
             const input = document.getElementById('user-input');
             const question = input.value.trim();
             
             if (!question) {
-                log('Empty input detected', 'error');
+                log('Empty input detected', 'warning');
                 return;
             }
 
@@ -239,7 +278,7 @@
             input.value = '';
         }
 
-        // Improved knowledge base loading with progress tracking
+        // Load knowledge base
         async function loadKnowledgeBase() {
             const fileInfo = document.getElementById('file-info');
             const files = [
@@ -249,38 +288,50 @@
                 'knowledge/explanations3.txt'
             ];
 
-            log('Starting knowledge base loading');
+            log('Starting knowledge base load');
             allParagraphs = [];
             fileContents.clear();
-            let loadedFiles = 0;
 
-            for (const filePath of files) {
-                const paragraphs = await loadFile(filePath);
-                if (paragraphs.length > 0) {
-                    fileContents.set(filePath, paragraphs);
-                    allParagraphs.push(...paragraphs);
-                    loadedFiles++;
-                    fileInfo.textContent = `පූරණය වෙමින් පවතී... ${loadedFiles}/${files.length} ගොනු`;
-                }
-            }
+            try {
+                const loadingPromises = files.map(filePath => loadFile(filePath));
+                const results = await Promise.allSettled(loadingPromises);
 
-            if (allParagraphs.length > 0) {
-                log(`Initializing search index with ${allParagraphs.length} paragraphs`);
-                combinedSearchIndex = new Fuse(allParagraphs, {
-                    keys: ['text'],
-                    includeScore: true,
-                    threshold: 0.4,
-                    minMatchCharLength: 2,
-                    distance: 1000,
-                    ignoreLocation: true,
-                    useExtendedSearch: true
+                results.forEach((result, index) => {
+                    if (result.status === 'fulfilled' && result.value.length > 0) {
+                        const filePath = files[index];
+                        fileContents.set(filePath, result.value);
+                        allParagraphs.push(...result.value);
+                        log(`Processed ${filePath}`, 'success', filePath);
+                    } else {
+                        log(`Failed to process ${files[index]}`, 'error', files[index]);
+                    }
                 });
-                fileInfo.textContent = `සාර්ථකව ${loadedFiles}/${files.length} ගොනු පූරණය කරන ලදි. (මුළු ඡේද ගණන: ${allParagraphs.length})`;
-                addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න.');
-                log('Knowledge base loaded successfully', 'success');
-            } else {
+
+                if (allParagraphs.length > 0) {
+                    log(`Initializing search index with ${allParagraphs.length} paragraphs`);
+                    
+                    combinedSearchIndex = new Fuse(allParagraphs, {
+                        keys: ['text'],
+                        includeScore: true,
+                        threshold: 0.4,
+                        minMatchCharLength: 2,
+                        distance: 1000,
+                        ignoreLocation: true,
+                        useExtendedSearch: true
+                    });
+
+                    fileContents.forEach((paragraphs, filePath) => {
+                        log(`${filePath}: ${paragraphs.length} paragraphs`, 'info', filePath);
+                    });
+
+                    fileInfo.textContent = `සාර්ථකව පූරණය කරන ලදි. මුළු ඡේද ගණන: ${allParagraphs.length}`;
+                    addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න.');
+                } else {
+                    throw new Error('No content loaded');
+                }
+            } catch (error) {
+                log(`Loading failed: ${error.message}`, 'error');
                 fileInfo.textContent = 'දත්ත ගොනු පූරණය අසාර්ථක විය.';
-                log('Failed to load knowledge base', 'error');
             }
         }
 

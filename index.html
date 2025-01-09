@@ -82,6 +82,14 @@
             margin-top: 5px;
             font-style: italic;
         }
+        .debug-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 3px;
+            padding: 2px 5px;
+            background: #f8f9fa;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body>
@@ -96,85 +104,142 @@
 
     <script>
         // Declare global variables
-        let fileContents = new Map();  // Stores file content
-        let allParagraphs = [];        // Combined paragraphs from all files
-        let combinedSearchIndex = null; // Search index
+        let fileContents = new Map();
+        let allParagraphs = [];
+        let combinedSearchIndex = null;
+        const DEBUG = true; // Enable/disable debug logging
 
-        // Split text into paragraphs
+        // Enhanced logging function
+        function log(message, type = 'info') {
+            if (DEBUG) {
+                const styles = {
+                    info: 'color: #0066cc',
+                    error: 'color: #cc0000',
+                    success: 'color: #006600'
+                };
+                console.log(`%c[${type.toUpperCase()}] ${message}`, styles[type] || styles.info);
+            }
+        }
+
+        // Split text into paragraphs with improved handling
         function splitIntoParagraphs(text) {
-            return text.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0);
+            const paragraphs = text.split(/\n\s*\n/)
+                                 .map(p => p.trim())
+                                 .filter(p => p.length > 0);
+            log(`Split text into ${paragraphs.length} paragraphs`);
+            return paragraphs;
         }
 
-        // Highlight search terms in text
+        // Enhanced highlight function with error handling
         function highlightText(text, terms) {
-            let highlighted = text;
-            terms.forEach(term => {
-                const regex = new RegExp(`(${term})`, 'gi');
-                highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
-            });
-            return highlighted;
+            try {
+                let highlighted = text;
+                terms.forEach(term => {
+                    if (term.length > 1) {  // Only highlight terms longer than 1 character
+                        const regex = new RegExp(`(${term})`, 'gi');
+                        highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
+                    }
+                });
+                return highlighted;
+            } catch (error) {
+                log(`Error in highlighting text: ${error.message}`, 'error');
+                return text;
+            }
         }
 
-        // Add message to chat
+        // Enhanced message display with debug info
         function addMessage(sender, text, isHTML = false) {
-            const messagesDiv = document.getElementById('messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
-            messageDiv[isHTML ? 'innerHTML' : 'textContent'] = text;
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            try {
+                const messagesDiv = document.getElementById('messages');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
+                messageDiv[isHTML ? 'innerHTML' : 'textContent'] = text;
+                
+                if (DEBUG && sender === 'බොට්') {
+                    const debugDiv = document.createElement('div');
+                    debugDiv.className = 'debug-info';
+                    debugDiv.textContent = `Timestamp: ${new Date().toISOString()}`;
+                    messageDiv.appendChild(debugDiv);
+                }
+                
+                messagesDiv.appendChild(messageDiv);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                log(`Added ${sender} message`);
+            } catch (error) {
+                log(`Error adding message: ${error.message}`, 'error');
+            }
         }
 
-        // Load file and split into paragraphs with metadata
+        // Enhanced file loading with better error handling
         async function loadFile(filePath) {
             try {
+                log(`Loading file: ${filePath}`);
                 const response = await fetch(filePath);
-                if (!response.ok) throw new Error(`Failed to load ${filePath}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const text = await response.text();
-                return splitIntoParagraphs(text).map(para => ({
+                const paragraphs = splitIntoParagraphs(text).map(para => ({
                     text: para,
                     source: filePath.split('/').pop()
                 }));
+                log(`Successfully loaded ${paragraphs.length} paragraphs from ${filePath}`, 'success');
+                return paragraphs;
             } catch (error) {
-                console.error(`Error loading file ${filePath}:`, error);
+                log(`Error loading file ${filePath}: ${error.message}`, 'error');
                 return [];
             }
         }
 
-        // Find answers using Fuse.js
+        // Improved search function with better relevance scoring
         function findComprehensiveAnswer(question) {
-            if (!combinedSearchIndex) return 'Knowledge base not loaded.';
+            if (!combinedSearchIndex) {
+                log('Search index not initialized', 'error');
+                return 'Knowledge base not loaded.';
+            }
+
             const terms = question.trim().toLowerCase().split(/\s+/);
+            log(`Searching for terms: ${terms.join(', ')}`);
+
             const results = combinedSearchIndex.search(question);
+            log(`Found ${results.length} results`);
 
             if (!results.length) return 'සමාවන්න, මට පිළිතුරක් සොයාගත නොහැක.';
 
             let response = '';
             const seenParagraphs = new Set();
+            const MAX_RESULTS = 3; // Limit number of results
+            let resultCount = 0;
 
             results.forEach(result => {
-                if (result.score < 0.4 && !seenParagraphs.has(result.item.text)) {
+                if (resultCount < MAX_RESULTS && result.score < 0.4 && !seenParagraphs.has(result.item.text)) {
+                    log(`Adding result with score ${result.score} from ${result.item.source}`);
                     response += `${highlightText(result.item.text, terms)}
                         <div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
                     seenParagraphs.add(result.item.text);
+                    resultCount++;
                 }
             });
 
             return response || 'සමාවන්න, මට පිළිතුරක් සොයාගත නොහැක.';
         }
 
-        // Handle user message sending
+        // Enhanced message handling with input validation
         function sendMessage() {
             const input = document.getElementById('user-input');
             const question = input.value.trim();
-            if (!question) return;
+            
+            if (!question) {
+                log('Empty input detected', 'error');
+                return;
+            }
+
+            log(`Processing question: ${question}`);
             addMessage('user', question);
             const answer = findComprehensiveAnswer(question);
             addMessage('බොට්', answer, true);
             input.value = '';
         }
 
-        // Load all knowledge base files
+        // Improved knowledge base loading with progress tracking
         async function loadKnowledgeBase() {
             const fileInfo = document.getElementById('file-info');
             const files = [
@@ -184,38 +249,51 @@
                 'knowledge/explanations3.txt'
             ];
 
+            log('Starting knowledge base loading');
             allParagraphs = [];
             fileContents.clear();
+            let loadedFiles = 0;
 
             for (const filePath of files) {
                 const paragraphs = await loadFile(filePath);
                 if (paragraphs.length > 0) {
                     fileContents.set(filePath, paragraphs);
                     allParagraphs.push(...paragraphs);
+                    loadedFiles++;
+                    fileInfo.textContent = `පූරණය වෙමින් පවතී... ${loadedFiles}/${files.length} ගොනු`;
                 }
             }
 
             if (allParagraphs.length > 0) {
+                log(`Initializing search index with ${allParagraphs.length} paragraphs`);
                 combinedSearchIndex = new Fuse(allParagraphs, {
                     keys: ['text'],
                     includeScore: true,
                     threshold: 0.4,
                     minMatchCharLength: 2,
                     distance: 1000,
-                    ignoreLocation: true
+                    ignoreLocation: true,
+                    useExtendedSearch: true
                 });
-                fileInfo.textContent = `සාර්ථකව ${files.length} ගොනු පූරණය කරන ලදි.`;
+                fileInfo.textContent = `සාර්ථකව ${loadedFiles}/${files.length} ගොනු පූරණය කරන ලදි. (මුළු ඡේද ගණන: ${allParagraphs.length})`;
                 addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න.');
+                log('Knowledge base loaded successfully', 'success');
             } else {
                 fileInfo.textContent = 'දත්ත ගොනු පූරණය අසාර්ථක විය.';
+                log('Failed to load knowledge base', 'error');
             }
         }
 
-        // Add event listeners
+        // Event listeners
         document.getElementById('user-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
-        window.addEventListener('load', loadKnowledgeBase);
+
+        // Initialize
+        window.addEventListener('load', () => {
+            log('Application starting');
+            loadKnowledgeBase();
+        });
     </script>
 </body>
 </html>

@@ -6,6 +6,7 @@
     <title>සිංහල චැට්බොට්</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js"></script>
     <style>
+        /* Basic styling for the chat interface */
         body {
             font-family: 'Arial', sans-serif;
             max-width: 800px;
@@ -70,18 +71,23 @@
         button:hover {
             background: #1565c0;
         }
-        .status {
-            margin-bottom: 15px;
+        .file-info {
+            margin: 10px 0;
             padding: 10px;
-            border-radius: 5px;
             background: #e8f5e9;
-            display: none;
+            border-radius: 5px;
+        }
+        .search-source {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <div id="status" class="status">Loading knowledge base...</div>
+        <div id="file-info" class="file-info">Loading knowledge base...</div>
         <div class="messages" id="messages"></div>
         <div class="input-container">
             <input type="text" id="user-input" placeholder="ඔබේ ප්‍රශ්නය මෙහි ටයිප් කරන්න...">
@@ -90,138 +96,148 @@
     </div>
 
     <script>
-         let knowledgeBase = [];
-        let fuseSearch = null;
-        let fileContents = new Map(); // New: Store contents of each file separately
+        // Store content from each file separately
+        let fileContents = new Map();
+        let allParagraphs = [];
+        
+        // Initialize search indexes for each file and combined content
+        let searchIndexes = new Map();
+        let combinedSearchIndex = null;
 
-        async function loadKnowledgeBase() {
-            const statusElement = document.getElementById('status');
-            statusElement.style.display = 'block';
-            
-            try {
-                const files = [
-                    'knowledge/buddhist_terms.txt',
-                    'knowledge/explanations.txt',
-                    'knowledge/explanations2.txt'
-                ];
-
-                let fullText = '';
-                
-                for (const filePath of files) {
-                    try {
-                        const response = await fetch(filePath);
-                        if (!response.ok) throw new Error(`Failed to load ${filePath}`);
-                        const text = await response.text();
-                        
-                        // Store content of each file separately
-                        fileContents.set(filePath, splitIntoParagraphs(text));
-                        
-                        fullText += text + '\n\n';
-                    } catch (error) {
-                        console.error(`Error loading ${filePath}:`, error);
-                        addMessage('බොට්', `Warning: Could not load ${filePath}`);
-                    }
-                }
-
-                // Create combined knowledge base
-                knowledgeBase = splitIntoParagraphs(fullText);
-
-                // Initialize Fuse.js with enhanced configuration
-                fuseSearch = new Fuse(knowledgeBase, {
-                    includeScore: true,
-                    threshold: 0.4, // Slightly increased threshold to catch more matches
-                    minMatchCharLength: 2,
-                    distance: 1000,
-                    useExtendedSearch: true,
-                    ignoreLocation: true,
-                    findAllMatches: true,
-                });
-
-                statusElement.textContent = 'දැන් මට ඔබේ ප්‍රශ්න වලට පිළිතුරු සැපයීමට හැකිය.';
-                setTimeout(() => {
-                    statusElement.style.display = 'none';
-                }, 3000);
-
-            } catch (error) {
-                console.error('Error initializing knowledge base:', error);
-                statusElement.textContent = 'Error loading knowledge base. Please check the console for details.';
-            }
+        // Function to clean and split text into paragraphs
+        function splitIntoParagraphs(text) {
+            return text.split(/\n\s*\n/)
+                .map(para => para.trim())
+                .filter(para => para.length > 0);
         }
 
-        function findContextualAnswer(question) {
-            if (!fuseSearch || knowledgeBase.length === 0) {
-                return 'Knowledge base is not loaded properly. Please check the file paths.';
-            }
-
-            const searchTerms = question.trim().toLowerCase().split(/\s+/);
-            
-            // Get initial search results
-            let results = fuseSearch.search(question);
-            
-            if (results.length === 0) {
-                return 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
-            }
-
-            // Filter and organize results
-            let relevantResults = new Set(); // Use Set to avoid duplicates
-            
-            // First, add the best direct matches
-            results.forEach(result => {
-                if (result.score < 0.4) { // Adjust this threshold as needed
-                    relevantResults.add(result.item);
-                }
-            });
-
-            // Now search each term individually to catch related content
-            for (const term of searchTerms) {
-                const termResults = fuseSearch.search(term);
-                termResults.forEach(result => {
-                    if (result.score < 0.3) { // Stricter threshold for individual terms
-                        relevantResults.add(result.item);
-                    }
-                });
-            }
-
-            // Convert results to array and sort by relevance
-            let sortedResults = Array.from(relevantResults);
-
-            // Prepare the response
-            let response = '';
-
-            // Add the most relevant result first
-            if (sortedResults.length > 0) {
-                let mainAnswer = sortedResults[0];
-                response = highlightText(mainAnswer, searchTerms.join('|'));
-            }
-
-            // Add additional relevant information
-            if (sortedResults.length > 1) {
-                response += '\n\nඅදාළ තොරතුරු:\n';
-                for (let i = 1; i < Math.min(sortedResults.length, 4); i++) {
-                    response += '\n' + highlightText(sortedResults[i], searchTerms.join('|'));
-                }
-            }
-
-            return response;
-        }
-
+        // Function to highlight search terms in text
         function highlightText(text, searchTerms) {
-            if (!searchTerms) return text;
-            
-            // Handle multiple search terms
-            const terms = searchTerms.split('|');
             let highlightedText = text;
-            
-            terms.forEach(term => {
+            searchTerms.forEach(term => {
                 if (term.trim()) {
                     const regex = new RegExp(`(${term})`, 'gi');
                     highlightedText = highlightedText.replace(regex, '<span class="highlighted">$1</span>');
                 }
             });
-            
             return highlightedText;
         }
 
+        // Function to load and process a single file
+        async function loadFile(filePath) {
+            try {
+                const response = await fetch(filePath);
+                if (!response.ok) throw new Error(`Failed to load ${filePath}`);
+                const text = await response.text();
+                
+                // Process the file content
+                const paragraphs = splitIntoParagraphs(text);
+                
+                // Store paragraphs with their source file info
+                const processedParagraphs = paragraphs.map(para => ({
+                    text: para,
+                    source: filePath.split('/').pop()
+                }));
+                
+                return processedParagraphs;
+            } catch (error) {
+                console.error(`Error loading ${filePath}:`, error);
+                return [];
+            }
+        }
+
+        // Main function to load all knowledge base files
+        async function loadKnowledgeBase() {
+            const fileInfo = document.getElementById('file-info');
+            
+            // Define all your knowledge base files here
+            const files = [
+                'knowledge/buddhist_terms.txt',
+                'knowledge/explanations.txt',
+                'knowledge/explanations2.txt'
+            ];
+
+            allParagraphs = [];
+
+            // Load all files
+            for (const filePath of files) {
+                const paragraphs = await loadFile(filePath);
+                if (paragraphs.length > 0) {
+                    fileContents.set(filePath, paragraphs);
+                    allParagraphs.push(...paragraphs);
+                }
+            }
+
+            // Initialize the combined search index
+            combinedSearchIndex = new Fuse(allParagraphs, {
+                keys: ['text'],
+                includeScore: true,
+                threshold: 0.4,
+                minMatchCharLength: 2,
+                distance: 1000,
+                useExtendedSearch: true,
+                ignoreLocation: true,
+                findAllMatches: true
+            });
+
+            // Update status
+            fileInfo.textContent = `දත්ත ගොනු ${files.length}ක් සාර්ථකව පූරණය කර ඇත. ප්‍රශ්න අසන්න.`;
+            
+            // Add initial message
+            addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න. මම සියලුම ගොනු වල ඇති තොරතුරු සොයා බලන්නම්.');
+        }
+
+        // Function to find comprehensive answers
+        function findComprehensiveAnswer(question) {
+            if (!combinedSearchIndex || allParagraphs.length === 0) {
+                return 'Knowledge base is not loaded properly.';
+            }
+
+            // Prepare search terms
+            const searchTerms = question.trim().toLowerCase().split(/\s+/);
+            
+            // Search using the combined index
+            const results = combinedSearchIndex.search(question);
+            
+            if (results.length === 0) {
+                return 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
+            }
+
+            // Process and format results
+            let formattedResponse = '';
+            let addedParagraphs = new Set(); // Track added paragraphs to avoid duplicates
+
+            results.forEach(result => {
+                if (result.score < 0.4 && !addedParagraphs.has(result.item.text)) {
+                    // Add paragraph with highlighting and source information
+                    const highlightedText = highlightText(result.item.text, searchTerms);
+                    formattedResponse += highlightedText + 
+                        `\n<div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
+                    
+                    addedParagraphs.add(result.item.text);
+                }
+            });
+
+            return formattedResponse || 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
+        }
+
+        // Function to add a message to the chat
+        function addMessage(sender, text, isHTML = false) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
+            
+            if (isHTML) {
+                messageDiv.innerHTML = text;
+            } else {
+                messageDiv.textContent = text;
+            }
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Function to handle sending messages
         function sendMessage() {
             const input = document.getElementById('user-input');
             const question = input.value.trim();
@@ -232,14 +248,14 @@
             addMessage('user', question);
 
             // Get and add bot response
-            const answer = findContextualAnswer(question);
+            const answer = findComprehensiveAnswer(question);
             addMessage('බොට්', answer, true);
 
             // Clear input
             input.value = '';
         }
 
-        // Allow sending message with Enter key
+        // Handle Enter key
         document.getElementById('user-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 sendMessage();

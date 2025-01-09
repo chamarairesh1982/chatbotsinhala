@@ -90,33 +90,19 @@
     </div>
 
     <script>
-        let knowledgeBase = [];
+         let knowledgeBase = [];
         let fuseSearch = null;
+        let fileContents = new Map(); // New: Store contents of each file separately
 
-        // Function to split text into meaningful paragraphs
-        function splitIntoParagraphs(text) {
-            return text.split(/\n\s*\n/).map(para => para.trim()).filter(para => para.length > 0);
-        }
-
-        // Function to highlight search terms in text
-        function highlightText(text, searchTerm) {
-            if (!searchTerm) return text;
-            const regex = new RegExp(`(${searchTerm})`, 'gi');
-            return text.replace(regex, '<span class="highlighted">$1</span>');
-        }
-
-        // Function to load knowledge base files
         async function loadKnowledgeBase() {
             const statusElement = document.getElementById('status');
             statusElement.style.display = 'block';
             
             try {
-                // Load your text files - add all your file paths here
                 const files = [
                     'knowledge/buddhist_terms.txt',
                     'knowledge/explanations.txt',
-					'knowledge/explanations2.txt'
-                    // Add more file paths as needed
+                    'knowledge/explanations2.txt'
                 ];
 
                 let fullText = '';
@@ -126,6 +112,10 @@
                         const response = await fetch(filePath);
                         if (!response.ok) throw new Error(`Failed to load ${filePath}`);
                         const text = await response.text();
+                        
+                        // Store content of each file separately
+                        fileContents.set(filePath, splitIntoParagraphs(text));
+                        
                         fullText += text + '\n\n';
                     } catch (error) {
                         console.error(`Error loading ${filePath}:`, error);
@@ -133,13 +123,13 @@
                     }
                 }
 
-                // Split the text into paragraphs
+                // Create combined knowledge base
                 knowledgeBase = splitIntoParagraphs(fullText);
 
                 // Initialize Fuse.js with enhanced configuration
                 fuseSearch = new Fuse(knowledgeBase, {
                     includeScore: true,
-                    threshold: 0.3,
+                    threshold: 0.4, // Slightly increased threshold to catch more matches
                     minMatchCharLength: 2,
                     distance: 1000,
                     useExtendedSearch: true,
@@ -147,7 +137,6 @@
                     findAllMatches: true,
                 });
 
-                statusElement.style.background = '#e8f5e9';
                 statusElement.textContent = 'දැන් මට ඔබේ ප්‍රශ්න වලට පිළිතුරු සැපයීමට හැකිය.';
                 setTimeout(() => {
                     statusElement.style.display = 'none';
@@ -155,22 +144,8 @@
 
             } catch (error) {
                 console.error('Error initializing knowledge base:', error);
-                statusElement.style.background = '#ffebee';
                 statusElement.textContent = 'Error loading knowledge base. Please check the console for details.';
             }
-        }
-
-        function addMessage(sender, text, isHTML = false) {
-            const messagesDiv = document.getElementById('messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
-            if (isHTML) {
-                messageDiv.innerHTML = text;
-            } else {
-                messageDiv.textContent = text;
-            }
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
         function findContextualAnswer(question) {
@@ -178,43 +153,73 @@
                 return 'Knowledge base is not loaded properly. Please check the file paths.';
             }
 
-            // Clean and prepare the search query
             const searchTerms = question.trim().toLowerCase().split(/\s+/);
             
-            // Search for relevant paragraphs
-            const results = fuseSearch.search(question);
-
+            // Get initial search results
+            let results = fuseSearch.search(question);
+            
             if (results.length === 0) {
                 return 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
             }
 
-            // Get the best matching paragraph
-            let bestMatch = results[0].item;
+            // Filter and organize results
+            let relevantResults = new Set(); // Use Set to avoid duplicates
             
-            // Highlight all search terms in the response
-            let highlightedResponse = bestMatch;
-            searchTerms.forEach(term => {
-                highlightedResponse = highlightText(highlightedResponse, term);
+            // First, add the best direct matches
+            results.forEach(result => {
+                if (result.score < 0.4) { // Adjust this threshold as needed
+                    relevantResults.add(result.item);
+                }
             });
 
-            // Find related paragraphs (context)
-            const relatedResults = results.slice(1, 3)
-                .filter(result => result.score < 0.4)
-                .map(result => result.item);
-
-            // If there are related paragraphs, add them to the response
-            if (relatedResults.length > 0) {
-                highlightedResponse += '\n\nඅදාළ තොරතුරු:\n' + 
-                    relatedResults.map(text => {
-                        let highlighted = text;
-                        searchTerms.forEach(term => {
-                            highlighted = highlightText(highlighted, term);
-                        });
-                        return highlighted;
-                    }).join('\n\n');
+            // Now search each term individually to catch related content
+            for (const term of searchTerms) {
+                const termResults = fuseSearch.search(term);
+                termResults.forEach(result => {
+                    if (result.score < 0.3) { // Stricter threshold for individual terms
+                        relevantResults.add(result.item);
+                    }
+                });
             }
 
-            return highlightedResponse;
+            // Convert results to array and sort by relevance
+            let sortedResults = Array.from(relevantResults);
+
+            // Prepare the response
+            let response = '';
+
+            // Add the most relevant result first
+            if (sortedResults.length > 0) {
+                let mainAnswer = sortedResults[0];
+                response = highlightText(mainAnswer, searchTerms.join('|'));
+            }
+
+            // Add additional relevant information
+            if (sortedResults.length > 1) {
+                response += '\n\nඅදාළ තොරතුරු:\n';
+                for (let i = 1; i < Math.min(sortedResults.length, 4); i++) {
+                    response += '\n' + highlightText(sortedResults[i], searchTerms.join('|'));
+                }
+            }
+
+            return response;
+        }
+
+        function highlightText(text, searchTerms) {
+            if (!searchTerms) return text;
+            
+            // Handle multiple search terms
+            const terms = searchTerms.split('|');
+            let highlightedText = text;
+            
+            terms.forEach(term => {
+                if (term.trim()) {
+                    const regex = new RegExp(`(${term})`, 'gi');
+                    highlightedText = highlightedText.replace(regex, '<span class="highlighted">$1</span>');
+                }
+            });
+            
+            return highlightedText;
         }
 
         function sendMessage() {

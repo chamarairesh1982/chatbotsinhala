@@ -222,39 +222,43 @@ async function loadKnowledgeBase() {
     fileContents.clear();
 
     for (const filePath of files) {
-        const paragraphs = await loadFile(filePath);
-        if (paragraphs.length > 0) {
-            console.log(`File loaded: ${filePath}, paragraphs: ${paragraphs.length}`);
-            fileContents.set(filePath, paragraphs);
-            allParagraphs.push(...paragraphs);
-        } else {
-            console.warn(`No paragraphs loaded for file: ${filePath}`);
+        try {
+            const paragraphs = await loadFile(filePath);
+            if (paragraphs.length > 0) {
+                console.log(`File loaded: ${filePath}, paragraphs: ${paragraphs.length}`);
+                fileContents.set(filePath, paragraphs);
+                allParagraphs.push(...paragraphs); // Append paragraphs from each file
+            } else {
+                console.warn(`No paragraphs loaded for file: ${filePath}`);
+            }
+        } catch (error) {
+            console.error(`Failed to load file: ${filePath}`, error);
         }
     }
 
-    // Initialize the search index with all loaded paragraphs
-    combinedSearchIndex = new Fuse(allParagraphs, {
-        keys: ['text'],
-        includeScore: true,
-        threshold: 0.4,
-        minMatchCharLength: 2,
-        distance: 1000,
-        useExtendedSearch: true,
-        ignoreLocation: true,
-        findAllMatches: true
-    });
-
-    // Log search index creation
-    console.log(`Search index initialized with ${allParagraphs.length} paragraphs`);
-
-    // Update status and add welcome message
     if (allParagraphs.length > 0) {
+        // Initialize the search index with all loaded paragraphs
+        combinedSearchIndex = new Fuse(allParagraphs, {
+            keys: ['text'],
+            includeScore: true,
+            threshold: 0.4,
+            minMatchCharLength: 2,
+            distance: 1000,
+            useExtendedSearch: true,
+            ignoreLocation: true,
+            findAllMatches: true
+        });
+
+        console.log(`Search index initialized with ${allParagraphs.length} paragraphs`);
+
+        // Update status and add welcome message
         fileInfo.textContent = `දත්ත ගොනු ${files.length}ක් සාර්ථකව පූරණය කර ඇත. ප්‍රශ්න අසන්න.`;
         addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න. මම සියලුම ගොනු වල ඇති තොරතුරු සොයා බලන්නම්.');
     } else {
         fileInfo.textContent = `ගොනු පූරණය අසාර්ථක විය. කරුණාකර ගොනු පරික්ෂා කරන්න.`;
     }
 }
+
 
         // Handle Enter key for sending messages
         document.getElementById('user-input').addEventListener('keypress', (e) => {

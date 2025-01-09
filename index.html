@@ -113,31 +113,36 @@
         let textContent = new Map();
         let searchIndex = null;
 
-        // Improved search configuration
+        // Configuration for Fuse.js
         const searchConfig = {
             includeScore: true,
             threshold: 0.3,
             minMatchCharLength: 2,
             distance: 2000,
             ignoreLocation: true,
-            keys: ['content'],
-            useExtendedSearch: true
+            keys: ['content']
         };
 
         // Load and process text files
         async function loadTextFiles() {
             const files = {
-                'dhamma1.txt': 'knowledge/explanations.txt',
-                'dhamma2.txt': 'knowledge/explanations2.txt',
-                'dhamma3.txt': 'knowledge/explanations3.txt',
-                // Add more files as needed
+                'dhamma1.txt': 'path/to/dhamma1.txt',
+                'dhamma2.txt': 'path/to/dhamma2.txt',
+                'dhamma3.txt': 'path/to/dhamma3.txt',
+                // Add additional file mappings here
             };
 
             try {
+                const paragraphsArray = [];
+
                 for (const [name, path] of Object.entries(files)) {
                     const response = await fetch(path);
-                    if (!response.ok) continue;
-                    
+
+                    if (!response.ok) {
+                        console.warn(`Failed to load ${name}: ${response.statusText}`);
+                        continue;
+                    }
+
                     const text = await response.text();
                     const paragraphs = text.split(/\n\s*\n/)
                         .map(p => p.trim())
@@ -147,20 +152,20 @@
                             source: name,
                             id: Math.random().toString(36).substr(2, 9)
                         }));
-                    
+
                     textContent.set(name, paragraphs);
+                    paragraphsArray.push(...paragraphs);
                 }
 
-                // Create search index
-                const allParagraphs = Array.from(textContent.values()).flat();
-                searchIndex = new Fuse(allParagraphs, searchConfig);
-                
+                // Build the search index
+                searchIndex = new Fuse(paragraphsArray, searchConfig);
+
                 document.getElementById('loading-status').textContent = 
-                    `පූරණය සම්පූර්ණයි. මුළු ඡේද ගණන: ${allParagraphs.length}`;
-                
+                    `පූරණය සම්පූර්ණයි. මුළු ඡේද ගණන: ${paragraphsArray.length}`;
+
                 addMessage('system', 'ඔබේ සෙවුම් පදය ටයිප් කරන්න.');
             } catch (error) {
-                console.error('Error loading files:', error);
+                console.error('Error loading text files:', error);
                 document.getElementById('loading-status').textContent = 
                     'ගොනු පූරණයේ දෝෂයක් ඇති විය.';
             }
@@ -168,24 +173,20 @@
 
         function highlightSearchTerms(text, searchTerm) {
             if (!searchTerm) return text;
-            
+
             const terms = searchTerm.trim().split(/\s+/);
             let highlighted = text;
-            
+
             terms.forEach(term => {
                 const regex = new RegExp(`(${term})`, 'gi');
                 highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
             });
-            
+
             return highlighted;
         }
 
         function formatSearchResult(result, searchTerm) {
-            const paragraphs = result.content.split('\n')
-                .map(p => p.trim())
-                .filter(p => p.length > 0)
-                .map(p => `<div class="paragraph">${highlightSearchTerms(p, searchTerm)}</div>`)
-                .join('');
+            const paragraphs = `<div class="paragraph">${highlightSearchTerms(result.content, searchTerm)}</div>`;
 
             return `
                 ${paragraphs}
@@ -195,25 +196,22 @@
 
         function search(searchTerm) {
             if (!searchIndex) return [];
-            
+
             const results = searchIndex.search(searchTerm);
-            return results
-                .filter(r => r.score < 0.3)
-                .slice(0, 5)
-                .map(r => r.item);
+            return results.map(r => r.item);
         }
 
         function addMessage(sender, content, isHTML = false) {
             const messagesDiv = document.getElementById('messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
-            
+
             if (isHTML) {
                 messageDiv.innerHTML = content;
             } else {
                 messageDiv.textContent = content;
             }
-            
+
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
@@ -221,22 +219,20 @@
         function sendMessage() {
             const input = document.getElementById('user-input');
             const searchTerm = input.value.trim();
-            
+
             if (!searchTerm) return;
-            
+
             addMessage('user', searchTerm);
-            
+
             const results = search(searchTerm);
-            
+
             if (results.length > 0) {
-                const formattedResults = results
-                    .map(r => formatSearchResult(r, searchTerm))
-                    .join('<hr>');
+                const formattedResults = results.map(r => formatSearchResult(r, searchTerm)).join('<hr>');
                 addMessage('system', formattedResults, true);
             } else {
                 addMessage('system', 'සමාවන්න, ඔබේ සෙවුමට ගැලපෙන ප්‍රතිඵල හමු නොවීය.');
             }
-            
+
             input.value = '';
         }
 

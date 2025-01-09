@@ -135,54 +135,62 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-        // This function loads and processes a single file
-        async function loadFile(filePath) {
-            try {
-                const response = await fetch(filePath);
-                if (!response.ok) {
-                    throw new Error(`Failed to load ${filePath}`);
-                }
-                const text = await response.text();
-                
-                // Process the file content into paragraphs with source information
-                const paragraphs = splitIntoParagraphs(text);
-                return paragraphs.map(para => ({
-                    text: para,
-                    source: filePath.split('/').pop()
-                }));
-            } catch (error) {
-                console.error(`Error loading ${filePath}:`, error);
-                return [];
-            }
+       // Enhanced: Ensure Unicode is handled properly and debug paragraph loading
+async function loadFile(filePath) {
+    try {
+        const response = await fetch(filePath);
+        if (!response.ok) {
+            throw new Error(`Failed to load ${filePath}`);
         }
+        const text = await response.text();
 
-        // This function searches through our content and returns comprehensive results
-        function findComprehensiveAnswer(question) {
-            if (!combinedSearchIndex || allParagraphs.length === 0) {
-                return 'Knowledge base is not loaded properly.';
-            }
+        // Log file content size for debugging
+        console.log(`Loaded file: ${filePath}, size: ${text.length} characters`);
 
-            const searchTerms = question.trim().toLowerCase().split(/\s+/);
-            const results = combinedSearchIndex.search(question);
-            
-            if (results.length === 0) {
-                return 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
-            }
+        // Split text into paragraphs, ensure proper Unicode handling
+        const paragraphs = splitIntoParagraphs(text);
 
-            let formattedResponse = '';
-            let addedParagraphs = new Set();
+        // Return paragraphs with file source metadata
+        return paragraphs.map(para => ({
+            text: para,
+            source: filePath.split('/').pop()
+        }));
+    } catch (error) {
+        console.error(`Error loading ${filePath}:`, error);
+        return [];
+    }
+}
 
-            results.forEach(result => {
-                if (result.score < 0.4 && !addedParagraphs.has(result.item.text)) {
-                    const highlightedText = highlightText(result.item.text, searchTerms);
-                    formattedResponse += highlightedText + 
-                        `\n<div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
-                    addedParagraphs.add(result.item.text);
-                }
-            });
+       // Enhanced: Debug search function for Sinhala Unicode compatibility
+function findComprehensiveAnswer(question) {
+    if (!combinedSearchIndex || allParagraphs.length === 0) {
+        return 'Knowledge base is not loaded properly.';
+    }
 
-            return formattedResponse || 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
+    const searchTerms = question.trim().toLowerCase().split(/\s+/);
+    const results = combinedSearchIndex.search(question);
+
+    if (results.length === 0) {
+        console.warn(`No results found for query: "${question}"`);
+        return 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
+    }
+
+    let formattedResponse = '';
+    let addedParagraphs = new Set();
+
+    results.forEach(result => {
+        if (result.score < 0.4 && !addedParagraphs.has(result.item.text)) {
+            const highlightedText = highlightText(result.item.text, searchTerms);
+            formattedResponse += highlightedText +
+                `\n<div class="search-source">මූලාශ්‍රය: ${result.item.source}</div>\n\n`;
+            addedParagraphs.add(result.item.text);
         }
+    });
+
+    console.log(`Query: "${question}", Results found: ${results.length}`);
+
+    return formattedResponse || 'සමාවන්න, මට ඔබේ ප්‍රශ්නයට පිළිතුරක් සොයාගත නොහැකි විය.';
+}
 
         // This function handles sending messages
         function sendMessage() {
@@ -197,47 +205,56 @@
             input.value = '';
         }
 
-        // This is our main function that loads all knowledge base files
-        async function loadKnowledgeBase() {
-            const fileInfo = document.getElementById('file-info');
-            
-            // Define all your knowledge base files here
-            const files = [
-                'knowledge/buddhist_terms.txt',
-                'knowledge/explanations.txt',
-                'knowledge/explanations2.txt',
-				'knowledge/explanations3.txt'
-            ];
+        // Enhanced: Debug knowledge base loading
+async function loadKnowledgeBase() {
+    const fileInfo = document.getElementById('file-info');
 
-            // Reset our data structures
-            allParagraphs = [];
-            fileContents.clear();
+    // Define all your knowledge base files here
+    const files = [
+        'knowledge/buddhist_terms.txt',
+        'knowledge/explanations.txt',
+        'knowledge/explanations2.txt',
+        'knowledge/explanations3.txt'
+    ];
 
-            // Load all files
-            for (const filePath of files) {
-                const paragraphs = await loadFile(filePath);
-                if (paragraphs.length > 0) {
-                    fileContents.set(filePath, paragraphs);
-                    allParagraphs.push(...paragraphs);
-                }
-            }
+    // Reset our data structures
+    allParagraphs = [];
+    fileContents.clear();
 
-            // Initialize our search index with all content
-            combinedSearchIndex = new Fuse(allParagraphs, {
-                keys: ['text'],
-                includeScore: true,
-                threshold: 0.4,
-                minMatchCharLength: 2,
-                distance: 1000,
-                useExtendedSearch: true,
-                ignoreLocation: true,
-                findAllMatches: true
-            });
-
-            // Update status and add welcome message
-            fileInfo.textContent = `දත්ත ගොනු ${files.length}ක් සාර්ථකව පූරණය කර ඇත. ප්‍රශ්න අසන්න.`;
-            addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න. මම සියලුම ගොනු වල ඇති තොරතුරු සොයා බලන්නම්.');
+    for (const filePath of files) {
+        const paragraphs = await loadFile(filePath);
+        if (paragraphs.length > 0) {
+            console.log(`File loaded: ${filePath}, paragraphs: ${paragraphs.length}`);
+            fileContents.set(filePath, paragraphs);
+            allParagraphs.push(...paragraphs);
+        } else {
+            console.warn(`No paragraphs loaded for file: ${filePath}`);
         }
+    }
+
+    // Initialize the search index with all loaded paragraphs
+    combinedSearchIndex = new Fuse(allParagraphs, {
+        keys: ['text'],
+        includeScore: true,
+        threshold: 0.4,
+        minMatchCharLength: 2,
+        distance: 1000,
+        useExtendedSearch: true,
+        ignoreLocation: true,
+        findAllMatches: true
+    });
+
+    // Log search index creation
+    console.log(`Search index initialized with ${allParagraphs.length} paragraphs`);
+
+    // Update status and add welcome message
+    if (allParagraphs.length > 0) {
+        fileInfo.textContent = `දත්ත ගොනු ${files.length}ක් සාර්ථකව පූරණය කර ඇත. ප්‍රශ්න අසන්න.`;
+        addMessage('බොට්', 'ඔබේ ප්‍රශ්නය අසන්න. මම සියලුම ගොනු වල ඇති තොරතුරු සොයා බලන්නම්.');
+    } else {
+        fileInfo.textContent = `ගොනු පූරණය අසාර්ථක විය. කරුණාකර ගොනු පරික්ෂා කරන්න.`;
+    }
+}
 
         // Handle Enter key for sending messages
         document.getElementById('user-input').addEventListener('keypress', (e) => {
